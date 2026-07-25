@@ -15,3 +15,4 @@ venv/
 # Output files
 *.md
 !README.md
+!docs/**/*.md

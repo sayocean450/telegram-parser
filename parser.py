@@ -21,12 +21,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telethon import TelegramClient
-from telethon.tl.types import (
-    MessageMediaPhoto,
-    MessageMediaDocument,
-    MessageMediaWebPage,
-    PeerChannel,
-)
+from telethon.tl.types import MessageMediaWebPage
 from telegraph import find_telegraph_url, fetch_telegraph
 
 load_dotenv()
@@ -40,29 +35,22 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "_", name)
 
 
-def media_type(message) -> str:
-    if isinstance(message.media, MessageMediaPhoto):
-        return "📷 Photo"
-    if isinstance(message.media, MessageMediaDocument):
-        doc = message.media.document
-        for attr in doc.attributes:
-            if hasattr(attr, "file_name"):
-                return f"📎 {attr.file_name}"
-        mime = getattr(doc, "mime_type", "")
-        if mime.startswith("video"):
-            return "🎥 Video"
-        if mime.startswith("audio"):
-            return "🎵 Audio"
-        return f"📎 Document ({mime})"
-    if isinstance(message.media, MessageMediaWebPage):
-        wp = message.media.webpage
-        title = getattr(wp, "title", "") or ""
-        url = getattr(wp, "url", "") or ""
-        if title and url:
-            return f"🔗 [{title}]({url})"
-        if url:
-            return f"🔗 {url}"
-    return ""
+def resolve_post_text(msg) -> str:
+    """Return post text, preferring full Telegraph article over Telegram caption.
+
+    Media-only messages (photos, videos, etc. without caption) yield "".
+    """
+    wp_url = (
+        getattr(msg.media.webpage, "url", None)
+        if isinstance(msg.media, MessageMediaWebPage)
+        else None
+    )
+    tg_url = find_telegraph_url(msg.text, wp_url)
+    if tg_url:
+        tg_content = fetch_telegraph(tg_url)
+        if tg_content:
+            return tg_content
+    return msg.text or ""
 
 
 async def fetch_and_export(channel: str, output: str, limit: int | None, reverse: bool):
@@ -81,8 +69,7 @@ async def fetch_and_export(channel: str, output: str, limit: int | None, reverse
             if len(messages) % 200 == 0:
                 print(f"  Fetched {len(messages)} messages...")
 
-        total = len(messages)
-        print(f"Total messages fetched: {total}")
+        print(f"Total messages fetched: {len(messages)}")
 
         # Sort oldest → newest for readable output
         if not reverse:
@@ -91,63 +78,40 @@ async def fetch_and_export(channel: str, output: str, limit: int | None, reverse
         output_path = Path(output).expanduser() if output else Path(f"{sanitize_filename(username)}.md")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        posts: list[str] = []
+        for msg in messages:
+            post_text = resolve_post_text(msg)
+            if not post_text:
+                continue  # skip service / media-only messages (photos without caption, etc.)
+
+            date_str = msg.date.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            post_url = f"https://t.me/{username}/{msg.id}" if username else ""
+            header = f"### [{date_str}]({post_url})\n\n" if post_url else f"### {date_str}\n\n"
+
+            text = post_text.replace("\r\n", "\n").replace("\r", "\n")
+            chunk = header + text + "\n"
+
+            meta_parts = []
+            if msg.views:
+                meta_parts.append(f"👁 {msg.views:,}")
+            if msg.forwards:
+                meta_parts.append(f"🔁 {msg.forwards:,}")
+            if meta_parts:
+                chunk += f"\n*{' · '.join(meta_parts)}*"
+
+            chunk += "\n\n---\n\n"
+            posts.append(chunk)
+
         with output_path.open("w", encoding="utf-8") as f:
             f.write(f"# {title}\n\n")
             if username:
                 f.write(f"**Channel:** [@{username}](https://t.me/{username})  \n")
-            f.write(f"**Total posts exported:** {total}  \n")
+            f.write(f"**Total posts exported:** {len(posts)}  \n")
             f.write(f"**Exported on:** {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}  \n\n")
             f.write("---\n\n")
+            f.writelines(posts)
 
-            for msg in messages:
-                if not msg.text and not msg.media:
-                    continue  # skip service messages
-
-                # Header: date + link
-                date_str = msg.date.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-                post_url = f"https://t.me/{username}/{msg.id}" if username else ""
-                if post_url:
-                    f.write(f"### [{date_str}]({post_url})\n\n")
-                else:
-                    f.write(f"### {date_str}\n\n")
-
-                # Detect Telegraph link and fetch full article text
-                wp_url = (
-                    getattr(msg.media.webpage, "url", None)
-                    if isinstance(msg.media, MessageMediaWebPage)
-                    else None
-                )
-                tg_url     = find_telegraph_url(msg.text, wp_url)
-                tg_content = fetch_telegraph(tg_url) if tg_url else None
-
-                # Media attachment info (skip the webpage preview if we have full Telegraph text)
-                if msg.media:
-                    if tg_content and isinstance(msg.media, MessageMediaWebPage):
-                        pass  # full content replaces the short preview; no need for a link stub
-                    else:
-                        media_str = media_type(msg)
-                        if media_str:
-                            f.write(f"> {media_str}\n\n")
-
-                # Message text: prefer Telegraph full article over Telegram preview
-                post_text = tg_content or msg.text or ""
-                if post_text:
-                    text = post_text.replace("\r\n", "\n").replace("\r", "\n")
-                    f.write(text)
-                    f.write("\n")
-
-                # Views / forwards metadata
-                meta_parts = []
-                if msg.views:
-                    meta_parts.append(f"👁 {msg.views:,}")
-                if msg.forwards:
-                    meta_parts.append(f"🔁 {msg.forwards:,}")
-                if meta_parts:
-                    f.write(f"\n*{' · '.join(meta_parts)}*")
-
-                f.write("\n\n---\n\n")
-
-        print(f"\nDone! Saved to: {output_path.resolve()}")
+        print(f"\nDone! Exported {len(posts)} text posts to: {output_path.resolve()}")
 
 
 def main():

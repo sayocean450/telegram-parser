@@ -42,12 +42,11 @@ python parser.py --channel durov --limit 500
 
 ## Output format
 
-Each post in the Markdown file looks like:
+Only text posts are exported (photo/video-only messages without a caption are skipped).
+Posts with both an image and a caption keep the text only — no media stubs.
 
 ```markdown
 ### [2024-01-15 10:30 UTC](https://t.me/channel/123)
-
-> 📷 Photo
 
 Post text goes here...
 
