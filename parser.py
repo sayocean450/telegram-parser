@@ -27,6 +27,7 @@ from telethon.tl.types import (
     MessageMediaWebPage,
     PeerChannel,
 )
+from telegraph import find_telegraph_url, fetch_telegraph
 
 load_dotenv()
 
@@ -87,7 +88,8 @@ async def fetch_and_export(channel: str, output: str, limit: int | None, reverse
         if not reverse:
             messages.sort(key=lambda m: m.date)
 
-        output_path = Path(output or f"{sanitize_filename(title)}.md")
+        output_path = Path(output).expanduser() if output else Path(f"{sanitize_filename(username)}.md")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with output_path.open("w", encoding="utf-8") as f:
             f.write(f"# {title}\n\n")
@@ -109,16 +111,28 @@ async def fetch_and_export(channel: str, output: str, limit: int | None, reverse
                 else:
                     f.write(f"### {date_str}\n\n")
 
-                # Media attachment info
-                if msg.media:
-                    media_str = media_type(msg)
-                    if media_str:
-                        f.write(f"> {media_str}\n\n")
+                # Detect Telegraph link and fetch full article text
+                wp_url = (
+                    getattr(msg.media.webpage, "url", None)
+                    if isinstance(msg.media, MessageMediaWebPage)
+                    else None
+                )
+                tg_url     = find_telegraph_url(msg.text, wp_url)
+                tg_content = fetch_telegraph(tg_url) if tg_url else None
 
-                # Message text
-                if msg.text:
-                    # Preserve line breaks, escape leading '#' to avoid unintended headers
-                    text = msg.text.replace("\r\n", "\n").replace("\r", "\n")
+                # Media attachment info (skip the webpage preview if we have full Telegraph text)
+                if msg.media:
+                    if tg_content and isinstance(msg.media, MessageMediaWebPage):
+                        pass  # full content replaces the short preview; no need for a link stub
+                    else:
+                        media_str = media_type(msg)
+                        if media_str:
+                            f.write(f"> {media_str}\n\n")
+
+                # Message text: prefer Telegraph full article over Telegram preview
+                post_text = tg_content or msg.text or ""
+                if post_text:
+                    text = post_text.replace("\r\n", "\n").replace("\r", "\n")
                     f.write(text)
                     f.write("\n")
 
@@ -147,8 +161,8 @@ def main():
     )
     parser.add_argument(
         "--output", "-o",
-        default=None,
-        help="Output .md file path (default: <channel_title>.md)",
+        required=True,
+        help="Output .md file path (e.g. ~/Dropbox/channels/channel.md)",
     )
     parser.add_argument(
         "--limit", "-l",
