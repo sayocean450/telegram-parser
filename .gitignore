@@ -16,3 +16,4 @@ venv/
 *.md
 !README.md
 !docs/**/*.md
+!.cursor/commands/**/*.md
