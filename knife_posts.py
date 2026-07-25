@@ -44,6 +44,57 @@ def count_existing(out_dir: Path) -> int:
     return sum(1 for f in out_dir.iterdir() if re.match(r'^\d{3}\.md$', f.name))
 
 
+def write_individual_posts(
+    md_path: Path,
+    out_dir: Path,
+    *,
+    incremental: bool = False,
+    dry_run: bool = False,
+) -> int:
+    """
+    Split a common .md file into 001.md, 002.md, … in out_dir.
+    Returns the number of files written (or that would be written in dry-run).
+    """
+    posts = split_posts(md_path)
+    if not posts:
+        print("No posts found.")
+        return 0
+
+    existing = count_existing(out_dir) if incremental else 0
+    new_posts = posts[existing:]
+
+    print(f"Channel file : {md_path}")
+    print(f"Output folder: {out_dir}")
+    print(f"Total posts  : {len(posts)}")
+    if incremental:
+        print(f"Already exist: {existing}")
+        print(f"New posts    : {len(new_posts)}\n")
+    else:
+        print()
+
+    if not new_posts:
+        print("Nothing to do — all posts already exist.")
+        return 0
+
+    if not dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    for i, post in enumerate(new_posts, start=existing + 1):
+        filename = f"{i:03d}.md"
+        out_path = out_dir / filename
+        preview = post.splitlines()[0][:80]
+        print(f"  {filename}  {preview}")
+        if not dry_run:
+            out_path.write_text(post + '\n', encoding='utf-8')
+
+    if dry_run:
+        print("\n(dry-run — no files written)")
+    else:
+        print(f"\nDone! {len(new_posts)} new files written to {out_dir}")
+
+    return len(new_posts)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('file', help='Path to the parsed channel .md file')
@@ -59,45 +110,13 @@ def main():
         print(f"Error: file not found: {md_path}")
         sys.exit(1)
 
-    posts = split_posts(md_path)
-    if not posts:
-        print("No posts found.")
-        sys.exit(0)
-
     out_dir = Path(args.out).expanduser().resolve()
-
-    # Incremental mode: skip already-existing posts
-    existing = count_existing(out_dir) if args.incremental else 0
-    new_posts = posts[existing:]
-
-    print(f"Channel file : {md_path}")
-    print(f"Output folder: {out_dir}")
-    print(f"Total posts  : {len(posts)}")
-    if args.incremental:
-        print(f"Already exist: {existing}")
-        print(f"New posts    : {len(new_posts)}\n")
-    else:
-        print()
-
-    if not new_posts:
-        print("Nothing to do — all posts already exist.")
-        return
-
-    if not args.dry_run:
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-    for i, post in enumerate(new_posts, start=existing + 1):
-        filename = f"{i:03d}.md"
-        out_path = out_dir / filename
-        preview = post.splitlines()[0][:80]
-        print(f"  {filename}  {preview}")
-        if not args.dry_run:
-            out_path.write_text(post + '\n', encoding='utf-8')
-
-    if args.dry_run:
-        print("\n(dry-run — no files written)")
-    else:
-        print(f"\nDone! {len(new_posts)} new files written to {out_dir}")
+    write_individual_posts(
+        md_path,
+        out_dir,
+        incremental=args.incremental,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == '__main__':

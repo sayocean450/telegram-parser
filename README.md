@@ -1,6 +1,7 @@
 # Telegram Channel Parser
 
-Exports all posts from a Telegram channel into a single Markdown file.
+Exports all text posts from a Telegram channel into a single `*_common.md` file.
+By default posts are **not** split into individual files.
 
 ## Setup
 
@@ -21,14 +22,23 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-# Export all posts from a public channel
-python parser.py --channel durov
+# Export all posts into one common Markdown file
+python parser.py --channel durov --output durov_common.md
 
-# Export to a specific file
-python parser.py --channel durov --output durov_posts.md
+# Same, then also split into individual files under durov_knifed/
+python parser.py --channel durov --output durov_common.md --knife
 
 # Export only the latest 500 messages
-python parser.py --channel durov --limit 500
+python parser.py --channel durov --output durov_common.md --limit 500
+```
+
+With `--knife`, the script creates `<channel>_knifed/` **next to** the common file
+(e.g. `./durov_common.md` → `./durov_knifed/001.md`, `002.md`, …).
+
+You can still knife an existing common file separately:
+
+```bash
+python knife_posts.py durov_common.md --out durov_knifed
 ```
 
 ### Arguments
@@ -36,9 +46,10 @@ python parser.py --channel durov --limit 500
 | Argument | Short | Description |
 |---|---|---|
 | `--channel` | `-c` | Channel username or invite link (**required**) |
-| `--output` | `-o` | Output file path (default: `<channel_title>.md`) |
+| `--output` | `-o` | Path to the `*_common.md` file (**required**) |
 | `--limit` | `-l` | Max messages to fetch (default: all) |
 | `--reverse` | | Fetch newest-first |
+| `--knife` | | Also split posts into `<channel>_knifed/` beside the common file |
 
 ## Output format
 

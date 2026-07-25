@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from telethon import TelegramClient
 from telethon.tl.types import MessageMediaWebPage
 from telegraph import find_telegraph_url, fetch_telegraph
+from knife_posts import write_individual_posts
 
 load_dotenv()
 
@@ -53,12 +54,18 @@ def resolve_post_text(msg) -> str:
     return msg.text or ""
 
 
-async def fetch_and_export(channel: str, output: str, limit: int | None, reverse: bool):
+async def fetch_and_export(
+    channel: str,
+    output: str,
+    limit: int | None,
+    reverse: bool,
+    knife: bool = False,
+):
     async with TelegramClient(SESSION_NAME, API_ID, API_HASH) as client:
         print(f"Connecting to Telegram...")
         entity = await client.get_entity(channel)
         title = getattr(entity, "title", channel)
-        username = getattr(entity, "username", channel)
+        username = getattr(entity, "username", None) or sanitize_filename(channel)
 
         print(f"Channel: {title} (@{username})")
         print("Fetching messages... (this may take a while for large channels)")
@@ -75,7 +82,7 @@ async def fetch_and_export(channel: str, output: str, limit: int | None, reverse
         if not reverse:
             messages.sort(key=lambda m: m.date)
 
-        output_path = Path(output).expanduser() if output else Path(f"{sanitize_filename(username)}.md")
+        output_path = Path(output).expanduser() if output else Path(f"{sanitize_filename(username)}_common.md")
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         posts: list[str] = []
@@ -113,10 +120,15 @@ async def fetch_and_export(channel: str, output: str, limit: int | None, reverse
 
         print(f"\nDone! Exported {len(posts)} text posts to: {output_path.resolve()}")
 
+        if knife:
+            knife_dir = output_path.parent / f"{sanitize_filename(username)}_knifed"
+            print(f"\nKnifing posts into: {knife_dir}")
+            write_individual_posts(output_path, knife_dir)
+
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Export all posts from a Telegram channel to Markdown."
+        description="Export all posts from a Telegram channel to a single Markdown file."
     )
     parser.add_argument(
         "--channel", "-c",
@@ -126,7 +138,7 @@ def main():
     parser.add_argument(
         "--output", "-o",
         required=True,
-        help="Output .md file path (e.g. ~/Dropbox/channels/channel.md)",
+        help="Output *_common.md file path (e.g. ~/Dropbox/channels/durov_common.md)",
     )
     parser.add_argument(
         "--limit", "-l",
@@ -140,6 +152,12 @@ def main():
         default=False,
         help="Fetch in reverse order (newest first)",
     )
+    parser.add_argument(
+        "--knife",
+        action="store_true",
+        default=False,
+        help="Also split posts into <channel>_knifed/ next to the common file",
+    )
     args = parser.parse_args()
 
     if not API_ID or not API_HASH:
@@ -147,7 +165,15 @@ def main():
         print("Get your credentials at https://my.telegram.org/apps")
         raise SystemExit(1)
 
-    asyncio.run(fetch_and_export(args.channel, args.output, args.limit, args.reverse))
+    asyncio.run(
+        fetch_and_export(
+            args.channel,
+            args.output,
+            args.limit,
+            args.reverse,
+            knife=args.knife,
+        )
+    )
 
 
 if __name__ == "__main__":
