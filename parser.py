@@ -96,17 +96,7 @@ async def fetch_and_export(
             header = f"### [{date_str}]({post_url})\n\n" if post_url else f"### {date_str}\n\n"
 
             text = post_text.replace("\r\n", "\n").replace("\r", "\n")
-            chunk = header + text + "\n"
-
-            meta_parts = []
-            if msg.views:
-                meta_parts.append(f"👁 {msg.views:,}")
-            if msg.forwards:
-                meta_parts.append(f"🔁 {msg.forwards:,}")
-            if meta_parts:
-                chunk += f"\n*{' · '.join(meta_parts)}*"
-
-            chunk += "\n\n---\n\n"
+            chunk = header + text + "\n\n---\n\n"
             posts.append(chunk)
 
         with output_path.open("w", encoding="utf-8") as f:

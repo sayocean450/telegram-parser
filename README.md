@@ -61,8 +61,6 @@ Posts with both an image and a caption keep the text only — no media stubs.
 
 Post text goes here...
 
-*👁 12,345 · 🔁 678*
-
 ---
 ```
 
